@@ -64,7 +64,11 @@ type BoundsState = {
   maxLon: number;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
+
+if (!API_BASE) {
+  throw new Error("NEXT_PUBLIC_API_BASE is not configured");
+}
 const DEFAULT_CENTER: [number, number] = [40.7128, -74.006];
 const DEFAULT_BOUNDS: BoundsState = {
   minLat: 40.4774,
