@@ -1,0 +1,10 @@
+.venv
+__pycache__
+*.pyc
+kafka
+snap
+*.csv
+*.tgz
+*.jar
+README.md
+dataproc_jobs

@@ -1,0 +1,9 @@
+311_backend/.venv/
+311_backend/__pycache__/
+311_backend/kafka/
+311_backend/kafka_2.13-4.0.0.tgz
+311_backend/*.csv
+311_backend/*.jar
+frontend-nyc-map/.next/
+frontend-nyc-map/node_modules/
+.DS_Store
