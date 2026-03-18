@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements-serve.txt
 
 COPY 311_backend.py ./
 COPY sync_socrata_to_postgres.py ./
+COPY rebuild_aggregates.py ./
 COPY consumer_to_postgres.py ./
 COPY stream_from_csv.py ./
 COPY get_data.py ./
