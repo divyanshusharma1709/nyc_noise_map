@@ -105,6 +105,64 @@ function buildQuery(params: Record<string, string | number | null | undefined>) 
   return query.toString();
 }
 
+function normalizeOverviewStats(payload: unknown): OverviewStats | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const candidate = payload as Partial<OverviewStats> & {
+    total_complaints?: number;
+    complaint_types?: number;
+    boroughs?: number;
+    earliest_created_date?: string | null;
+    latest_created_date?: string | null;
+    top_complaint_types?: Array<{ complaint_type: string; count: number }>;
+    counts_by_borough?: Array<{ borough: string | null; count: number }>;
+  };
+
+  if (candidate.overview) {
+    return {
+      overview: {
+        total_complaints: Number(candidate.overview.total_complaints ?? 0),
+        complaint_types: Number(candidate.overview.complaint_types ?? 0),
+        boroughs: Number(candidate.overview.boroughs ?? 0),
+        earliest_created_date: candidate.overview.earliest_created_date ?? null,
+        latest_created_date: candidate.overview.latest_created_date ?? null,
+      },
+      top_complaint_types: Array.isArray(candidate.top_complaint_types) ? candidate.top_complaint_types : [],
+      counts_by_borough: Array.isArray(candidate.counts_by_borough) ? candidate.counts_by_borough : [],
+    };
+  }
+
+  if (typeof candidate.total_complaints === "number") {
+    return {
+      overview: {
+        total_complaints: candidate.total_complaints,
+        complaint_types: Number(candidate.complaint_types ?? 0),
+        boroughs: Number(candidate.boroughs ?? 0),
+        earliest_created_date: candidate.earliest_created_date ?? null,
+        latest_created_date: candidate.latest_created_date ?? null,
+      },
+      top_complaint_types: Array.isArray(candidate.top_complaint_types) ? candidate.top_complaint_types : [],
+      counts_by_borough: Array.isArray(candidate.counts_by_borough) ? candidate.counts_by_borough : [],
+    };
+  }
+
+  return null;
+}
+
+function normalizeSyncRuns(payload: unknown): SyncRun[] {
+  if (Array.isArray(payload)) {
+    return payload as SyncRun[];
+  }
+
+  if (payload && typeof payload === "object") {
+    return [payload as SyncRun];
+  }
+
+  return [];
+}
+
 function MapEvents({
   onViewportChange,
 }: {
@@ -148,27 +206,54 @@ export default function MapView() {
     const controller = new AbortController();
 
     async function loadSummary() {
-      try {
-        const [overviewResponse, syncResponse] = await Promise.all([
-          fetch(`${API_BASE}/stats/overview`, { signal: controller.signal }),
-          fetch(`${API_BASE}/sync/status`, { signal: controller.signal }),
-        ]);
+      const requests = await Promise.allSettled([
+        fetch(`${API_BASE}/stats/overview`, { signal: controller.signal }),
+        fetch(`${API_BASE}/sync/status`, { signal: controller.signal }),
+        fetch(`${API_BASE}/health`, { signal: controller.signal }),
+      ]);
 
-        if (!overviewResponse.ok || !syncResponse.ok) {
-          throw new Error("Failed to load dashboard metadata.");
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      const [overviewResult, syncResult, healthResult] = requests;
+      let summaryError: string | null = null;
+
+      if (overviewResult.status === "fulfilled" && overviewResult.value.ok) {
+        const overviewJson = await overviewResult.value.json();
+        const normalizedOverview = normalizeOverviewStats(overviewJson);
+        if (normalizedOverview) {
+          setOverview(normalizedOverview);
+        } else {
+          summaryError = "Overview response was malformed.";
         }
+      } else if (healthResult.status === "fulfilled" && healthResult.value.ok) {
+        const healthJson = await healthResult.value.json();
+        setOverview({
+          overview: {
+            total_complaints: Number(healthJson.complaint_count ?? 0),
+            complaint_types: 0,
+            boroughs: 0,
+            earliest_created_date: null,
+            latest_created_date: healthJson.latest_created_date ?? null,
+          },
+          top_complaint_types: [],
+          counts_by_borough: [],
+        });
+        summaryError = "Overview fallback in use.";
+      } else {
+        summaryError = "Failed to load overview.";
+      }
 
-        const [overviewJson, syncJson] = await Promise.all([
-          overviewResponse.json(),
-          syncResponse.json(),
-        ]);
+      if (syncResult.status === "fulfilled" && syncResult.value.ok) {
+        const syncJson = await syncResult.value.json();
+        setSyncRuns(normalizeSyncRuns(syncJson));
+      } else if (!summaryError) {
+        summaryError = "Failed to load sync status.";
+      }
 
-        setOverview(overviewJson);
-        setSyncRuns(Array.isArray(syncJson) ? syncJson : []);
-      } catch (fetchError) {
-        if (!controller.signal.aborted) {
-          setError(fetchError instanceof Error ? fetchError.message : "Failed to load metadata.");
-        }
+      if (summaryError) {
+        setError(summaryError);
       }
     }
 
